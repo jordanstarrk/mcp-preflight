@@ -8,6 +8,12 @@ Run one command.
 Get a list of tools, resources, and prompts.  
 See read / write / destructive capabilities up front.
 
+## Install
+```bash
+brew install pipx && pipx ensurepath
+pipx install git+https://github.com/jordanstarrk/mcp-preflight.git
+```
+
 ## Usage
 
 ```bash
