@@ -5,9 +5,12 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "mcp-preflight"
 version = "0.1.0"
-description = "Connect to any MCP server and see what it does before you trust it."
+description = "See what an MCP server exposes before you trust or connect it."
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [{name = "jordanstarrk"}]
+keywords = ["mcp", "security", "cli", "ai", "agents"]
 dependencies = [
     "mcp>=1.26.0",
 ]

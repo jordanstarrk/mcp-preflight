@@ -27,6 +27,16 @@ from typing import TextIO
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
+# Exception groups are built-in in Python 3.11+, but on 3.10 they're provided by the
+# `exceptiongroup` backport (often installed as a transitive dependency).
+try:  # Python 3.11+
+    _BaseExceptionGroup = BaseExceptionGroup  # type: ignore[name-defined]
+except NameError:  # Python <= 3.10
+    try:
+        from exceptiongroup import BaseExceptionGroup as _BaseExceptionGroup  # type: ignore
+    except Exception:  # pragma: no cover
+        _BaseExceptionGroup = None
+
 
 # ── Risk classification ──────────────────────────────────────
 
@@ -246,9 +256,9 @@ def _contains_timeout(exc: BaseException) -> bool:
     # anyio cancellation/stream teardown frequently shows up as BrokenResourceError/ClosedResourceError.
     if type(exc).__name__ in {"BrokenResourceError", "ClosedResourceError"}:
         return True
-    # Python 3.11+: TimeoutError may be wrapped in an ExceptionGroup/BaseExceptionGroup.
-    if isinstance(exc, BaseExceptionGroup):  # type: ignore[name-defined]
-        for sub in exc.exceptions:
+    # TimeoutError may be wrapped in an ExceptionGroup/BaseExceptionGroup.
+    if _BaseExceptionGroup is not None and isinstance(exc, _BaseExceptionGroup):  # type: ignore[arg-type]
+        for sub in getattr(exc, "exceptions", ()):
             if _contains_timeout(sub):
                 return True
     return False
