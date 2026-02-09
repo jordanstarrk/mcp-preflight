@@ -8,12 +8,33 @@ version = "0.1.0"
 description = "See what an MCP server exposes before you trust or connect it."
 readme = "README.md"
 requires-python = ">=3.10"
-license = {text = "MIT"}
+license = {file = "LICENSE"}
 authors = [{name = "jordanstarrk"}]
 keywords = ["mcp", "security", "cli", "ai", "agents"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Security",
+    "Topic :: Utilities",
+]
 dependencies = [
     "mcp>=1.26.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/jordanstarrk/mcp-preflight"
+Repository = "https://github.com/jordanstarrk/mcp-preflight"
+Issues = "https://github.com/jordanstarrk/mcp-preflight/issues"
+Changelog = "https://github.com/jordanstarrk/mcp-preflight/releases"
 
 [project.scripts]
 mcp-preflight = "mcp_preflight:main"
