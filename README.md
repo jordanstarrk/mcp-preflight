@@ -1,10 +1,6 @@
 # mcp-preflight
 
-See what an MCP server exposes before you trust or connect it.
-
-## TLDR
-
-Run one command and get a quick capability + risk report for an MCP server (tools, resources, prompts).
+`ls -la` for MCP servers. See what an MCP server exposes before you connect it.
 
 ## Install
 
@@ -14,47 +10,10 @@ Recommended (CLI):
 pipx install mcp-preflight
 ```
 
-Alternative:
-
-```bash
-pip install mcp-preflight
-```
-
 ## Usage
 
 ```bash
-mcp-preflight "uv run server.py"
-```
-
-### Quick “real server” smoke test
-
-```bash
 mcp-preflight "npx @modelcontextprotocol/server-filesystem /tmp"
-```
-
-### Other examples
-
-```bash
-mcp-preflight "npx my-mcp-server"
-mcp-preflight "python3 /path/to/server.py"
-```
-
-### Save a report (JSON)
-
-```bash
-mcp-preflight --save report.json "uv run server.py"
-```
-
-### Diff two saved reports
-
-```bash
-mcp-preflight diff before.json after.json
-```
-
-### JSON output
-
-```bash
-mcp-preflight --json "uv run server.py"
 ```
 
 ### Example output
@@ -86,6 +45,38 @@ my-server (MCP 2025-03-26)
     ℹ️  timeout: mcp list_resources
 
   Risk: 2 write, 1 destructive, 2 read-only
+```
+
+### Run against your own server
+
+```bash
+mcp-preflight "uv run server.py"
+mcp-preflight "npx my-mcp-server"
+mcp-preflight "python3 /path/to/server.py"
+```
+
+### Save a report (JSON)
+
+```bash
+mcp-preflight --save report.json "uv run server.py"
+```
+
+### Diff two saved reports
+
+```bash
+mcp-preflight diff before.json after.json
+```
+
+### JSON output
+
+```bash
+mcp-preflight --json "uv run server.py"
+```
+
+### Alternative install (not recommended for global installs)
+
+```bash
+pip install mcp-preflight
 ```
 
 ## Risk classification
