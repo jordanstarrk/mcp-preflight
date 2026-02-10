@@ -1,4 +1,5 @@
 # mcp-preflight
+[![Downloads](https://static.pepy.tech/badge/mcp-preflight)](https://pepy.tech/project/mcp-preflight)
 
 `ls -la` for MCP servers. See what an MCP server exposes before you connect it.
 
