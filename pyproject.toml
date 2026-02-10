@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mcp-preflight"
-version = "0.1.0"
+version = "0.2.0"
 description = "See what an MCP server exposes before you trust or connect it."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -30,6 +30,11 @@ dependencies = [
     "mcp>=1.26.0",
 ]
 
+[project.optional-dependencies]
+test = [
+    "pytest>=8.0.0",
+]
+
 [project.urls]
 Homepage = "https://github.com/jordanstarrk/mcp-preflight"
 Repository = "https://github.com/jordanstarrk/mcp-preflight"
@@ -38,6 +43,11 @@ Changelog = "https://github.com/jordanstarrk/mcp-preflight/releases"
 
 [project.scripts]
 mcp-preflight = "mcp_preflight:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Default: clean pass/fail output.  Use -v for verbose, or `uv run python tests/show_outputs.py` to see toy server results.
+addopts = "--tb=short -q"
 
 [tool.setuptools]
 py-modules = ["mcp_preflight"]

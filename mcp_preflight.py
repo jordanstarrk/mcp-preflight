@@ -23,7 +23,7 @@ import tempfile
 import textwrap
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import TextIO
+from typing import Any, TextIO
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
@@ -74,13 +74,13 @@ def _normalize_text(s: object) -> str:
     return " ".join(str(s).split())
 
 
-def _tool_dict(tool) -> dict:
+def _tool_dict(tool: Any) -> dict:
     desc = tool.description or "(no description)"
     icon, risk = classify_tool(tool.name, desc)
     return {"name": tool.name, "description": _normalize_text(desc), "risk": risk, "icon": icon}
 
 
-def _prompt_dict(prompt) -> dict:
+def _prompt_dict(prompt: Any) -> dict:
     args = []
     if hasattr(prompt, "arguments") and prompt.arguments:
         args = [a.name for a in prompt.arguments]
@@ -123,9 +123,11 @@ def collect_signals(
     for t in tools:
         scan("tool", t["name"], f'{t["name"]} {t["description"]}')
     for uri in resource_uris:
-        scan("resource", uri, uri)
+        u = str(uri)
+        scan("resource", u, u)
     for uri in template_uris:
-        scan("resource_template", uri, uri)
+        u = str(uri)
+        scan("resource_template", u, u)
     for p in prompts:
         text = f'{p["name"]} {" ".join(p.get("arguments") or [])} {p.get("description") or ""}'.strip()
         scan("prompt", p["name"], text)
@@ -137,11 +139,11 @@ def collect_signals(
 
 # ── Output formatting ────────────────────────────────────────
 
-def print_header(server_name: str, protocol_version: str):
+def print_header(server_name: str, protocol_version: str) -> None:
     print(f"{server_name} (MCP {protocol_version})\n")
 
 
-def print_tools(tools: list[dict]):
+def print_tools(tools: list[dict]) -> None:
     if not tools:
         print("  Tools: none\n")
         return
@@ -172,23 +174,35 @@ def print_tools(tools: list[dict]):
     print()
 
 
-def print_resources(resources, templates):
-    has_any = resources or templates
+def print_resources(
+    resource_uris: list[str], template_uris: list[str], *, supported: bool = True, had_error: bool = False
+) -> None:
+    has_any = resource_uris or template_uris
     if not has_any:
-        print("  Resources: none\n")
+        if not supported:
+            print("  Resources: not supported by server\n")
+        elif had_error:
+            print("  Resources: unknown (introspection failed)\n")
+        else:
+            print("  Resources: none\n")
         return
 
     print("  Resources:")
-    for uri in sorted([r.uri for r in resources]):
+    for uri in sorted(resource_uris):
         print(f"    📄 {uri}")
-    for uri in sorted([t.uriTemplate for t in templates]):
+    for uri in sorted(template_uris):
         print(f"    📄 {uri}")
     print()
 
 
-def print_prompts(prompts):
+def print_prompts(prompts: list[dict], *, supported: bool = True, had_error: bool = False) -> None:
     if not prompts:
-        print("  Prompts: none\n")
+        if not supported:
+            print("  Prompts: not supported by server\n")
+        elif had_error:
+            print("  Prompts: unknown (introspection failed)\n")
+        else:
+            print("  Prompts: none\n")
         return
 
     print("  Prompts:")
@@ -212,18 +226,29 @@ def print_signals(signals: list[dict]):
     print("    (may be false positives/negatives)")
     print()
 
-def print_notes(notes: list[dict]):
+def print_notes(notes: list[dict]) -> None:
     if not notes:
         return
     print("  Notes:")
     for n in notes:
         rule = n.get("rule") or "note"
         name = n.get("name") or ""
-        print(f"    ℹ️  {rule}: {n.get('kind')} {name}")
+        snippet = n.get("snippet") or ""
+
+        label = f"{name} ({rule})" if name else rule
+
+        if snippet:
+            # Show the first line, truncated for terminal readability.
+            short = snippet.split("\n")[0][:120]
+            if len(short) < len(snippet):
+                short += "…"
+            print(f"    ℹ️  {label}: {short}")
+        else:
+            print(f"    ℹ️  {label}")
     print()
 
 
-def print_risk_summary(counts: dict):
+def print_risk_summary(counts: dict) -> None:
     parts = []
     if counts.get("write"):
         parts.append(f"{counts['write']} write")
@@ -232,13 +257,76 @@ def print_risk_summary(counts: dict):
     if counts.get("read"):
         parts.append(f"{counts['read']} read-only")
 
-    print(f"  Risk: {', '.join(parts)}")
+    print(f"  Risk: {', '.join(parts) if parts else 'none'}")
     print()
+
+
+def print_text_report(report: dict) -> None:
+    """Render a finalized report dict as human-readable text to stdout."""
+    server = report.get("server", {})
+    status = report.get("status", "ok")
+
+    print_header(server.get("name", "unknown"), server.get("protocolVersion", "unknown"))
+    print("  Caution: the server process runs locally without sandboxing.")
+    print("  Use --isolate-home to prevent access to your real HOME directory.\n")
+
+    if status == "auth_gated":
+        print("  Status: 🔒 auth-gated (server did not enumerate capabilities without credentials)\n")
+        return
+
+    if status == "partial":
+        print("  Status: ⚠️  partial (some MCP introspection calls failed)\n")
+
+    print_tools(report.get("tools", []))
+
+    capabilities = report.get("capabilities", {})
+    notes = report.get("notes", [])
+    resources_had_error = any(
+        n.get("name") in ("list_resources", "list_resource_templates") for n in notes
+    )
+    prompts_had_error = any(n.get("name") == "list_prompts" for n in notes)
+
+    print_resources(
+        report.get("resources", []),
+        report.get("resourceTemplates", []),
+        supported=capabilities.get("resources", True),
+        had_error=resources_had_error,
+    )
+    print_prompts(
+        report.get("prompts", []),
+        supported=capabilities.get("prompts", True),
+        had_error=prompts_had_error,
+    )
+    print_signals(report.get("signals", []))
+    print_notes(notes)
+    print_risk_summary(report.get("risk", {}))
 
 
 # ── Main ─────────────────────────────────────────────────────
 
 RISK_PRIORITY = {"destructive": 0, "write": 1, "read": 2}
+
+AUTH_HINT_PATTERNS: list[re.Pattern] = [
+    re.compile(r"\bno (authentication|auth) (token|credentials?)\b", re.I),
+    re.compile(r"\b(authenticate|authentication) (required|needed)\b", re.I),
+    re.compile(r"\bplease authenticate\b", re.I),
+    re.compile(r"\bauth_login\b", re.I),
+    re.compile(r"\blogin required\b", re.I),
+    re.compile(r"\bunauthorized\b", re.I),
+]
+
+STACKTRACE_PATTERNS: list[re.Pattern] = [
+    re.compile(r"\bReferenceError:\b"),
+    re.compile(r"\bTypeError:"),
+    re.compile(r"\bUnhandledPromiseRejection\b"),
+    re.compile(r"\bunhandled errors? in a TaskGroup\b", re.I),
+    re.compile(r"\bFatal error\b", re.I),
+]
+
+
+def _mark_partial(current: str) -> str:
+    """Escalate status to 'partial' without downgrading from a worse status."""
+    return current if current != "ok" else "partial"
 
 
 def count_risks(tools: list[dict]) -> dict:
@@ -248,7 +336,7 @@ def count_risks(tools: list[dict]) -> dict:
     return counts
 
 
-def _contains_timeout(exc: BaseException) -> bool:
+def contains_timeout(exc: BaseException) -> bool:
     """Return True if exc (possibly an ExceptionGroup) contains a timeout."""
     # In practice, timeouts often surface as cancellation inside anyio TaskGroups.
     if isinstance(exc, (asyncio.TimeoutError, TimeoutError, asyncio.CancelledError)):
@@ -259,9 +347,79 @@ def _contains_timeout(exc: BaseException) -> bool:
     # TimeoutError may be wrapped in an ExceptionGroup/BaseExceptionGroup.
     if _BaseExceptionGroup is not None and isinstance(exc, _BaseExceptionGroup):  # type: ignore[arg-type]
         for sub in getattr(exc, "exceptions", ()):
-            if _contains_timeout(sub):
+            if contains_timeout(sub):
                 return True
     return False
+
+
+def _stderr_excerpt(server_err: str, *, max_chars: int = 1500) -> str:
+    s = server_err.strip()
+    if len(s) <= max_chars:
+        return s
+    # Prefer the end of stderr (often has the final error/stacktrace).
+    tail = s[-max_chars:]
+    # Avoid cutting in the middle of a line when possible.
+    nl = tail.find("\n")
+    if 0 <= nl <= 200:
+        tail = tail[nl + 1 :]
+    return "…\n" + tail
+
+
+def stderr_notes(server_err: str) -> tuple[list[dict], dict]:
+    """
+    Return (notes, stderr_signals) derived from raw server stderr.
+    stderr_signals is a small dict used for status classification.
+    """
+    notes: list[dict] = []
+    text = _normalize_text(server_err)
+    has_auth_hint = any(p.search(text) for p in AUTH_HINT_PATTERNS)
+    has_stacktrace = any(p.search(server_err) for p in STACKTRACE_PATTERNS)
+    if has_auth_hint:
+        notes.append(
+            {
+                "kind": "server",
+                "name": "stderr",
+                "rule": "auth_hint",
+                "snippet": _stderr_excerpt(server_err, max_chars=600)[:600],
+            }
+        )
+    if has_stacktrace:
+        notes.append(
+            {
+                "kind": "server",
+                "name": "stderr",
+                "rule": "startup_stacktrace",
+                "snippet": _stderr_excerpt(server_err, max_chars=900)[:900],
+            }
+        )
+    notes.sort(key=lambda n: (n.get("kind", ""), n.get("name", ""), n.get("rule", "")))
+    return notes, {"has_auth_hint": has_auth_hint, "has_stacktrace": has_stacktrace}
+
+
+def _relevant_stderr_lines(server_err: str, *, max_lines: int = 3) -> str:
+    """
+    Extract a small, high-signal subset of stderr for cleaner default output.
+
+    Intended for auth-gated / startup error cases where full stack traces are noisy.
+    """
+    lines = [ln.rstrip() for ln in (server_err or "").splitlines() if ln.strip()]
+    if not lines:
+        return ""
+
+    picked: list[str] = []
+    for ln in lines:
+        # Prefer auth hints and the first "fatal error" / exception line.
+        if any(p.search(ln) for p in AUTH_HINT_PATTERNS) or re.search(r"\b(Fatal error|ReferenceError:|TypeError:|Error:)\b", ln):
+            if ln not in picked:
+                picked.append(ln)
+        if len(picked) >= max_lines:
+            break
+
+    # Fallback: just show the first line or two.
+    if not picked:
+        picked = lines[: min(max_lines, 2)]
+
+    return "\n".join(picked).strip()
 
 
 def _build_report(
@@ -269,6 +427,8 @@ def _build_report(
     scanned_command: list[str],
     server_name: str,
     protocol_version: str,
+    capabilities: dict[str, bool],
+    status: str,
     tools: list[dict],
     resource_uris: list[str],
     template_uris: list[str],
@@ -276,11 +436,14 @@ def _build_report(
     signals: list[dict],
     notes: list[dict],
     risk: dict,
+    errors: list[dict] | None = None,
 ) -> dict:
     return {
         "generatedAt": datetime.now(timezone.utc).isoformat(),
         "scannedCommand": scanned_command,
         "server": {"name": server_name, "protocolVersion": protocol_version},
+        "capabilities": capabilities,
+        "status": status,
         "tools": tools,
         "resources": resource_uris,
         "resourceTemplates": template_uris,
@@ -288,6 +451,7 @@ def _build_report(
         "risk": risk,
         "signals": signals,
         "notes": notes,
+        "errors": errors or [],
     }
 
 
@@ -295,12 +459,13 @@ async def inspect(
     command: str,
     args: list[str],
     *,
-    emit_text: bool = True,
     timeout_s: float = 10.0,
     errlog: TextIO | None = None,
+    env: dict[str, str] | None = None,
+    cwd: str | Path | None = None,
     include_signals: bool = True,
 ) -> dict:
-    server_params = StdioServerParameters(command=command, args=args)
+    server_params = StdioServerParameters(command=command, args=args, env=env, cwd=cwd)
 
     async with stdio_client(server_params, errlog=errlog or sys.stderr) as (read_stream, write_stream):
         async with ClientSession(read_stream, write_stream) as session:
@@ -311,52 +476,97 @@ async def inspect(
                 server_name = result.serverInfo.name
             protocol_version = getattr(result, "protocolVersion", "unknown")
 
-            # Tools (required)
-            tools_raw = (await asyncio.wait_for(session.list_tools(), timeout=timeout_s)).tools
-            tools = [_tool_dict(t) for t in tools_raw]
-            tools.sort(key=lambda t: (RISK_PRIORITY.get(t["risk"], 9), t["name"]))
-            risk = count_risks(tools)
+            # Read server-declared capabilities.
+            caps = getattr(result, "capabilities", None)
+            has_tools = caps is not None and getattr(caps, "tools", None) is not None
+            has_resources = caps is not None and getattr(caps, "resources", None) is not None
+            has_prompts = caps is not None and getattr(caps, "prompts", None) is not None
 
-            # Resources (optional)
-            resources = []
-            templates = []
+            status = "ok"
+            errors: list[dict] = []
             notes: list[dict] = []
+
+            # Tools — always attempt even if not declared (many servers omit the capability).
+            tools: list[dict] = []
             try:
-                resources = (await asyncio.wait_for(session.list_resources(), timeout=timeout_s)).resources
+                tools_raw = (await asyncio.wait_for(session.list_tools(), timeout=timeout_s)).tools
+                tools = [_tool_dict(t) for t in tools_raw]
+                tools.sort(key=lambda t: (RISK_PRIORITY.get(t["risk"], 9), t["name"]))
             except asyncio.TimeoutError:
-                notes.append(
-                    {"kind": "mcp", "name": "list_resources", "rule": "timeout", "snippet": f"Timed out after {timeout_s}s"}
-                )
-            except Exception:
-                pass
-            try:
-                templates = (
-                    await asyncio.wait_for(session.list_resource_templates(), timeout=timeout_s)
-                ).resourceTemplates
-            except asyncio.TimeoutError:
-                notes.append(
+                status = _mark_partial(status)
+                errors.append(
                     {
                         "kind": "mcp",
-                        "name": "list_resource_templates",
+                        "name": "list_tools",
                         "rule": "timeout",
                         "snippet": f"Timed out after {timeout_s}s",
                     }
                 )
-            except Exception:
-                pass
-            resource_uris = sorted([r.uri for r in resources])
-            template_uris = sorted([t.uriTemplate for t in templates])
-
-            # Prompts (optional)
-            prompts = []
-            try:
-                prompts = (await asyncio.wait_for(session.list_prompts(), timeout=timeout_s)).prompts
-            except asyncio.TimeoutError:
-                notes.append(
-                    {"kind": "mcp", "name": "list_prompts", "rule": "timeout", "snippet": f"Timed out after {timeout_s}s"}
+            except Exception as e:
+                status = _mark_partial(status)
+                errors.append(
+                    {
+                        "kind": "mcp",
+                        "name": "list_tools",
+                        "rule": "error",
+                        "snippet": _normalize_text(str(e)),
+                    }
                 )
-            except Exception:
-                pass
+            risk = count_risks(tools)
+
+            # Resources — skip if server didn't declare the capability.
+            resources = []
+            templates = []
+            if has_resources:
+                try:
+                    resources = (await asyncio.wait_for(session.list_resources(), timeout=timeout_s)).resources
+                except asyncio.TimeoutError:
+                    status = _mark_partial(status)
+                    notes.append(
+                        {"kind": "mcp", "name": "list_resources", "rule": "timeout", "snippet": f"Timed out after {timeout_s}s"}
+                    )
+                except Exception as e:
+                    status = _mark_partial(status)
+                    notes.append(
+                        {"kind": "mcp", "name": "list_resources", "rule": "error", "snippet": _normalize_text(str(e))}
+                    )
+                try:
+                    templates = (
+                        await asyncio.wait_for(session.list_resource_templates(), timeout=timeout_s)
+                    ).resourceTemplates
+                except asyncio.TimeoutError:
+                    status = _mark_partial(status)
+                    notes.append(
+                        {
+                            "kind": "mcp",
+                            "name": "list_resource_templates",
+                            "rule": "timeout",
+                            "snippet": f"Timed out after {timeout_s}s",
+                        }
+                    )
+                except Exception as e:
+                    status = _mark_partial(status)
+                    notes.append(
+                        {"kind": "mcp", "name": "list_resource_templates", "rule": "error", "snippet": _normalize_text(str(e))}
+                    )
+            resource_uris = sorted([str(r.uri) for r in resources])
+            template_uris = sorted([str(t.uriTemplate) for t in templates])
+
+            # Prompts — skip if server didn't declare the capability.
+            prompts = []
+            if has_prompts:
+                try:
+                    prompts = (await asyncio.wait_for(session.list_prompts(), timeout=timeout_s)).prompts
+                except asyncio.TimeoutError:
+                    status = _mark_partial(status)
+                    notes.append(
+                        {"kind": "mcp", "name": "list_prompts", "rule": "timeout", "snippet": f"Timed out after {timeout_s}s"}
+                    )
+                except Exception as e:
+                    status = _mark_partial(status)
+                    notes.append(
+                        {"kind": "mcp", "name": "list_prompts", "rule": "error", "snippet": _normalize_text(str(e))}
+                    )
             prompts_info = [_prompt_dict(p) for p in prompts]
             prompts_info.sort(key=lambda p: p.get("name", ""))
 
@@ -366,20 +576,12 @@ async def inspect(
 
             notes.sort(key=lambda n: (n.get("kind", ""), n.get("name", ""), n.get("rule", "")))
 
-            if emit_text:
-                print_header(server_name, protocol_version)
-                print("  Note: this runs the server locally; it does not sandbox the process.\n")
-                print_tools(tools)
-                print_resources(resources, templates)
-                print_prompts(prompts_info)
-                print_signals(signals)
-                print_notes(notes)
-                print_risk_summary(risk)
-
             return _build_report(
                 scanned_command=[command, *args],
                 server_name=server_name,
                 protocol_version=protocol_version,
+                capabilities={"tools": has_tools, "resources": has_resources, "prompts": has_prompts},
+                status=status,
                 tools=tools,
                 resource_uris=resource_uris,
                 template_uris=template_uris,
@@ -387,10 +589,11 @@ async def inspect(
                 signals=signals,
                 notes=notes,
                 risk=risk,
+                errors=errors,
             )
 
 
-def _diff_reports(before: dict, after: dict) -> str:
+def diff_reports(before: dict, after: dict) -> str:
     def tool_map(r: dict) -> dict[str, dict]:
         return {t["name"]: t for t in r.get("tools", [])}
 
@@ -459,7 +662,179 @@ def _diff_reports(before: dict, after: dict) -> str:
     return "\n".join(lines).rstrip() + "\n"
 
 
-def main():
+def _report_json(report: dict) -> str:
+    """Serialize a report dict to a stable JSON string."""
+    return json.dumps(report, indent=2, sort_keys=True) + "\n"
+
+
+def _build_server_env(ns: argparse.Namespace) -> tuple[dict[str, str], tempfile.TemporaryDirectory[str] | None]:
+    """
+    Build the environment dict and optional temp-home for the server process.
+
+    Handles --env, --home, and --isolate-home.
+    Returns (server_env, temp_home_ctx).  Caller must clean up temp_home_ctx.
+    """
+    server_env = dict(os.environ)
+    for item in ns.env or []:
+        if "=" not in item:
+            raise SystemExit(f"mcp-preflight: --env must be KEY=VALUE (got {item!r})")
+        k, v = item.split("=", 1)
+        server_env[k] = v
+
+    temp_home_ctx: tempfile.TemporaryDirectory[str] | None = None
+    if ns.isolate_home:
+        temp_home_ctx = tempfile.TemporaryDirectory(prefix="mcp-preflight-home-")
+        home_dir: Path | None = Path(temp_home_ctx.name)
+    elif ns.home:
+        home_dir = ns.home
+    else:
+        home_dir = None
+
+    if home_dir is not None:
+        server_env["HOME"] = str(home_dir)
+        server_env["XDG_CONFIG_HOME"] = str(home_dir / ".config")
+        server_env["XDG_DATA_HOME"] = str(home_dir / ".local" / "share")
+        server_env["XDG_CACHE_HOME"] = str(home_dir / ".cache")
+
+    return server_env, temp_home_ctx
+
+
+def _read_captured_stderr(errbuf: TextIO | None) -> str:
+    """Read and return captured stderr content, or empty string if nothing was captured."""
+    if errbuf is None:
+        return ""
+    errbuf.seek(0)
+    return errbuf.read().strip()
+
+
+def _postprocess_success(report: dict, server_err: str, *, verbose: bool) -> None:
+    """
+    Post-process a successful inspect() report using captured stderr.
+
+    Mutates ``report`` in place: merges stderr-derived notes, sets auth_gated status.
+    """
+    if server_err:
+        notes, signals = stderr_notes(server_err)
+        if notes:
+            report["notes"] = sorted(
+                (report.get("notes") or []) + notes,
+                key=lambda n: (n.get("kind", ""), n.get("name", ""), n.get("rule", "")),
+            )
+
+        if signals.get("has_auth_hint") and (
+            not report.get("tools")
+            and not report.get("resources")
+            and not report.get("resourceTemplates")
+            and not report.get("prompts")
+        ):
+            report["status"] = "auth_gated"
+
+    if verbose and server_err:
+        sys.stderr.write("\n[server stderr]\n" + server_err + "\n")
+
+
+def _handle_inspect_failure(
+    exc: BaseException,
+    *,
+    server_err: str,
+    command: str,
+    args: list[str],
+    timeout_s: float,
+) -> tuple[dict, str]:
+    """
+    Build a failure report and user-facing error message from a failed inspect().
+
+    Returns (report, error_message).
+    """
+    is_timeout = contains_timeout(exc)
+    stderr_notes_list: list[dict] = []
+    stderr_flags: dict = {}
+
+    if server_err:
+        stderr_notes_list, stderr_flags = stderr_notes(server_err)
+
+        # If stderr contains a real stacktrace, it's not a timeout even if the
+        # underlying I/O exception looks like cancellation/stream teardown.
+        if stderr_flags.get("has_stacktrace"):
+            is_timeout = False
+
+    if stderr_flags.get("has_auth_hint"):
+        status = "auth_required"
+    else:
+        status = "timeout" if is_timeout else "startup_error"
+
+    stack_note = next((n for n in stderr_notes_list if n.get("rule") == "startup_stacktrace"), None)
+    if is_timeout:
+        err_snippet = f"Timed out after {timeout_s}s"
+    elif stack_note and stack_note.get("snippet"):
+        # Prefer the server's own stacktrace over anyio/TaskGroup wrapper errors.
+        err_snippet = str(stack_note["snippet"])
+    else:
+        err_snippet = _normalize_text(str(exc))
+
+    report = _build_report(
+        scanned_command=[command, *args],
+        server_name="unknown",
+        protocol_version="unknown",
+        capabilities={"tools": False, "resources": False, "prompts": False},
+        status=status,
+        tools=[],
+        resource_uris=[],
+        template_uris=[],
+        prompts=[],
+        signals=[],
+        notes=stderr_notes_list,
+        risk={"read": 0, "write": 0, "destructive": 0},
+        errors=[
+            {
+                "kind": "mcp",
+                "name": "initialize",
+                "rule": "timeout" if is_timeout else "error",
+                "snippet": err_snippet,
+            }
+        ],
+    )
+
+    # Build a concise user-facing error message.
+    if is_timeout:
+        error_message = f"mcp-preflight: timed out after {timeout_s}s"
+    elif stderr_flags.get("has_auth_hint"):
+        error_message = (
+            "mcp-preflight: 🔒 authentication required (the MCP server did not start without credentials)\n"
+            "Hint: re-run with --verbose to see server stderr, or pass credentials via --env/--home."
+        )
+    elif stack_note:
+        error_message = "mcp-preflight: server crashed during startup (see stderr above)"
+    else:
+        error_message = f"mcp-preflight: error: {_normalize_text(str(exc))}"
+
+    return report, error_message
+
+
+def _write_failure_stderr(server_err: str, *, verbose: bool, has_auth_hint: bool) -> None:
+    """Write appropriate stderr output for a failed inspection."""
+    if not server_err:
+        sys.stderr.write(
+            "Hint: if the server writes logs to stdout, it can break MCP stdio. Ensure server logs go to stderr.\n"
+        )
+        return
+
+    # By default, keep output clean for auth-required failures:
+    # full stderr is available via --verbose.
+    # For non-auth failures, print stderr by default to aid debugging.
+    if verbose or not has_auth_hint:
+        sys.stderr.write("\n[server stderr]\n" + server_err + "\n")
+
+
+def _emit_report(report: dict, *, save_path: Path | None, as_json: bool) -> None:
+    """Save and/or print the JSON report."""
+    if save_path:
+        save_path.write_text(_report_json(report), encoding="utf-8")
+    if as_json:
+        sys.stdout.write(_report_json(report))
+
+
+def main() -> None:
     if len(sys.argv) < 2:
         print('Usage: mcp-preflight "uv run server.py"')
         print('  mcp-preflight "npx my-mcp-server"')
@@ -475,7 +850,7 @@ def main():
 
         before = json.loads(ns.before.read_text(encoding="utf-8"))
         after = json.loads(ns.after.read_text(encoding="utf-8"))
-        sys.stdout.write(_diff_reports(before, after))
+        sys.stdout.write(diff_reports(before, after))
         return
 
     parser = argparse.ArgumentParser(
@@ -488,6 +863,23 @@ def main():
     parser.add_argument("--save", type=Path, help="Save JSON report to a file")
     parser.add_argument("--timeout", type=float, default=10.0, help="Timeout (seconds) for MCP calls (default: 10)")
     parser.add_argument("--no-signals", action="store_true", help="Disable heuristic signal scanning/output")
+    parser.add_argument(
+        "--env",
+        action="append",
+        default=[],
+        help="Add/override an environment variable for the server (repeatable, KEY=VALUE)",
+    )
+    parser.add_argument("--cwd", type=Path, help="Working directory for the server process")
+    parser.add_argument(
+        "--home",
+        type=Path,
+        help="Set HOME for the server (also sets XDG_* dirs); equivalent to --env HOME=... with extras",
+    )
+    parser.add_argument(
+        "--isolate-home",
+        action="store_true",
+        help="Run server with HOME (and XDG_* dirs) set to a temporary directory",
+    )
     vgroup = parser.add_mutually_exclusive_group()
     vgroup.add_argument("--quiet", action="store_true", help="Suppress server stderr (even on failure)")
     vgroup.add_argument("--verbose", action="store_true", help="Print server stderr (even on success)")
@@ -511,7 +903,7 @@ def main():
     command = parts[0]
     args = parts[1:]
 
-    emit_text = not ns.as_json
+    server_env, temp_home_ctx = _build_server_env(ns)
 
     errlog: TextIO
     errbuf: TextIO | None = None
@@ -526,45 +918,44 @@ def main():
             inspect(
                 command,
                 args,
-                emit_text=emit_text,
                 timeout_s=ns.timeout,
                 errlog=errlog,
+                env=server_env,
+                cwd=ns.cwd,
                 include_signals=not ns.no_signals,
             )
         )
-        if ns.verbose and errbuf is not None and not ns.quiet:
-            errbuf.seek(0)
-            server_err = errbuf.read().strip()
-            if server_err:
-                sys.stderr.write("\n[server stderr]\n" + server_err + "\n")
+
+        server_err = _read_captured_stderr(errbuf)
+        _postprocess_success(report, server_err, verbose=ns.verbose)
+
+        if not ns.as_json:
+            print_text_report(report)
     except BaseException as e:
-        is_timeout = _contains_timeout(e)
-        server_err = ""
-        if errbuf is not None and not ns.quiet:
-            errbuf.seek(0)
-            server_err = errbuf.read().strip()
-            if server_err:
-                sys.stderr.write("\n[server stderr]\n" + server_err + "\n")
-        if not server_err:
-            sys.stderr.write(
-                "Hint: if the server writes logs to stdout, it can break MCP stdio. Ensure server logs go to stderr.\n"
-            )
-        if is_timeout:
-            sys.stderr.write(f"mcp-preflight: timed out after {ns.timeout}s\n")
-        else:
-            sys.stderr.write(f"mcp-preflight: error: {e}\n")
+        server_err = _read_captured_stderr(errbuf)
+        _, stderr_flags = stderr_notes(server_err) if server_err else ([], {})
+        _write_failure_stderr(
+            server_err, verbose=ns.verbose, has_auth_hint=stderr_flags.get("has_auth_hint", False)
+        )
+
+        report, error_message = _handle_inspect_failure(
+            e, server_err=server_err, command=command, args=args, timeout_s=ns.timeout
+        )
+        _emit_report(report, save_path=ns.save, as_json=ns.as_json)
+        sys.stderr.write(error_message + "\n")
         raise SystemExit(1)
     finally:
         try:
             errlog.close()
         except Exception:
             pass
+        try:
+            if temp_home_ctx is not None:
+                temp_home_ctx.cleanup()
+        except Exception:
+            pass
 
-    if ns.save:
-        ns.save.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-
-    if ns.as_json:
-        sys.stdout.write(json.dumps(report, indent=2, sort_keys=True) + "\n")
+    _emit_report(report, save_path=ns.save, as_json=ns.as_json)
 
 
 if __name__ == "__main__":

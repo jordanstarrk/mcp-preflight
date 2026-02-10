@@ -6,24 +6,23 @@
 
 ## Install
 
-Recommended (CLI):
-
 ```bash
 pipx install mcp-preflight
 ```
 
-## Usage
+## Quick start
 
 ```bash
 mcp-preflight "npx @modelcontextprotocol/server-filesystem /tmp"
 ```
 
-### Example output
+## Example output
 
 ```text
 my-server (MCP 2025-03-26)
 
-  Note: this runs the server locally; it does not sandbox the process.
+  Caution: the server process runs locally without sandboxing.
+  Use --isolate-home to prevent access to your real HOME directory.
 
   Tools:
     🟢 list_items     "List all items in the database"
@@ -39,49 +38,55 @@ my-server (MCP 2025-03-26)
   Prompts:
     💬 analyze_items (project_name)
 
-  Signals (heuristic):
-    ⚠️  system prompt mention: prompt analyze_items
-    (may be false positives/negatives)
-
   Notes:
     ℹ️  timeout: mcp list_resources
 
   Risk: 2 write, 1 destructive, 2 read-only
 ```
 
-### Run against your own server
+## Common workflows
 
 ```bash
+# Run against your own server
 mcp-preflight "uv run server.py"
 mcp-preflight "npx my-mcp-server"
 mcp-preflight "python3 /path/to/server.py"
-```
 
-### Save a report (JSON)
-
-```bash
+# Save a report (JSON)
 mcp-preflight --save report.json "uv run server.py"
-```
 
-### Diff two saved reports
-
-```bash
+# Diff two saved reports
 mcp-preflight diff before.json after.json
-```
 
-### JSON output
-
-```bash
+# JSON output
 mcp-preflight --json "uv run server.py"
 ```
 
-### Alternative install (not recommended for global installs)
+## Notes
+
+- Runs the server locally.
+- Enumerates exposed MCP capabilities.
+
+<details>
+<summary>Auth-gated servers / custom env</summary>
+
+Some MCP servers only reveal tools/resources after authentication. `mcp-preflight` does not run login flows, so it may report capabilities as not enumerable until credentials are provided.
 
 ```bash
-pip install mcp-preflight
+# Pass a token via env
+mcp-preflight --env GITSCRUM_TOKEN=... "npx -y @gitscrum-studio/mcp-server"
+
+# Point HOME (and XDG_* dirs) somewhere else (useful for servers that read ~/.config, ~/.local, etc.)
+mcp-preflight --home /tmp/mcp-preflight-home "npx -y @gitscrum-studio/mcp-server"
+
+# Isolate HOME entirely to reduce side effects/pollution
+mcp-preflight --isolate-home "npx -y @gitscrum-studio/mcp-server"
 ```
 
-## Risk classification
+</details>
+
+<details>
+<summary>Risk classification heuristic</summary>
 
 Based on tool names and descriptions (conservative by default):
 
@@ -89,6 +94,21 @@ Based on tool names and descriptions (conservative by default):
 - 🟡 **write**: `create`, `add`, `update`, `set`, `send`, `write`, `upload`
 - 🔴 **destructive**: `delete`, `remove`, `destroy`, `drop`, `purge`, `clear`, `reset`
 - Unknown → 🟡 (assume write until proven otherwise)
+
+</details>
+
+<details>
+<summary>Signals (heuristic)</summary>
+
+`mcp-preflight` can emit “signals” based on text matching (best-effort). These are hints, not guarantees, and may have false positives/negatives.
+
+Disable with:
+
+```bash
+mcp-preflight --no-signals "uv run server.py"
+```
+
+</details>
 
 ## Non-goals
 
