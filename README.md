@@ -24,7 +24,7 @@ my-server (MCP 2025-03-26)
   Caution: the server process runs locally without sandboxing.
   Use --isolate-home to prevent access to your real HOME directory.
 
-  Tools:
+  MCP Tools (client-visible):
     🟢 list_items     "List all items in the database"
     🟢 get_item       "Get a single item by ID"
     🟡 create_item    "Create a new item"
@@ -35,13 +35,24 @@ my-server (MCP 2025-03-26)
     📄 my-server://items
     📄 my-server://items/{id}
 
+  Action-level Capabilities (server-declared, 12 operations across 3 tools):
+    Not directly visible via MCP introspection.
+    These represent actions multiplexed behind the tools above.
+      ↳ items (8): list, get, create, update, delete, search, export, archive
+      ↳ reports (3): daily, weekly, monthly
+      ↳ auth_login (single action)
+
   Prompts:
     💬 analyze_items (project_name)
 
   Notes:
     ℹ️  timeout: mcp list_resources
 
-  Risk: 2 write, 1 destructive, 2 read-only
+  Risk summary:
+    write: 2
+    destructive: 1
+    read-only: 2
+    (best-effort heuristic from tool names/descriptions; not enforced)
 ```
 
 ## Common workflows
@@ -66,6 +77,7 @@ mcp-preflight --json "uv run server.py"
 
 - Runs the server locally.
 - Enumerates exposed MCP capabilities.
+- If the server publishes a `://mcp/manifest` resource, preflight reads it (read-only) to surface action-level capabilities that MCP introspection alone cannot reveal (e.g. a single `invoice` tool that dispatches `list`, `get`, `create`, `send`, `mark_paid`).
 
 <details>
 <summary>Auth-gated servers / custom env</summary>
@@ -116,7 +128,7 @@ mcp-preflight --no-signals "uv run server.py"
 - No policy enforcement
 - No runtime analysis
 
-This tool inspects exposed MCP capabilities. It does not call tools (`call_tool`).
+This tool inspects exposed MCP capabilities. It does not call tools (`call_tool`). Manifest data is read via `read_resource` — no server state is mutated.
 
 ## Support
 
