@@ -234,7 +234,7 @@ def print_resources(
         if not supported:
             print("  Resources: not supported by server\n")
         elif had_error:
-            print("  Resources: unknown (introspection failed)\n")
+            print("  Resources: unknown\n")
         else:
             print("  Resources: none\n")
         return
@@ -265,7 +265,7 @@ def print_tool_capabilities(tool_caps: list[dict]) -> None:
     tools_word = "tool" if len(tool_caps) == 1 else "tools"
     print(f"  Action-level Capabilities (server-declared, {total_ops} {ops_word} across {len(tool_caps)} {tools_word}):")
     print("    Not directly visible via MCP introspection.")
-    print("    These represent actions multiplexed behind the tools above.")
+    print("    These represent additional actions exposed behind the tools above.")
     for entry in tool_caps:
         name = entry["tool"]
         ops = entry.get("operations")
@@ -281,7 +281,7 @@ def print_prompts(prompts: list[dict], *, supported: bool = True, had_error: boo
         if not supported:
             print("  Prompts: not supported by server\n")
         elif had_error:
-            print("  Prompts: unknown (introspection failed)\n")
+            print("  Prompts: unknown\n")
         else:
             print("  Prompts: none\n")
         return
@@ -350,6 +350,48 @@ def print_risk_summary(counts: dict) -> None:
     print()
 
 
+def _print_introspection_coverage(report: dict) -> None:
+    """Print a ✓/✗ checklist showing which MCP introspection calls succeeded.
+
+    Only meaningful for partial reports — shows what was attempted and whether
+    it succeeded so the reader can tell at a glance what's missing.
+    """
+    capabilities = report.get("capabilities", {})
+    notes = report.get("notes", [])
+    errors = report.get("errors", [])
+
+    # Build a map of failed MCP calls: name → rule (timeout/error).
+    failed: dict[str, str] = {}
+    for n in notes + errors:
+        if n.get("kind") == "mcp" and n.get("rule") in ("timeout", "error"):
+            failed[n["name"]] = n["rule"]
+
+    print("  Introspection coverage:")
+
+    # Tools — always attempted (many servers omit the capability flag).
+    if "list_tools" in failed:
+        print(f"    ✗ tools ({failed['list_tools']})")
+    else:
+        print("    ✓ tools")
+
+    # Resources — only attempted when the server declares the capability.
+    if capabilities.get("resources"):
+        res_fail = failed.get("list_resources") or failed.get("list_resource_templates")
+        if res_fail:
+            print(f"    ✗ resources ({res_fail})")
+        else:
+            print("    ✓ resources")
+
+    # Prompts — only attempted when the server declares the capability.
+    if capabilities.get("prompts"):
+        if "list_prompts" in failed:
+            print(f"    ✗ prompts ({failed['list_prompts']})")
+        else:
+            print("    ✓ prompts")
+
+    print()
+
+
 def print_text_report(report: dict) -> None:
     """Render a finalized report dict as human-readable text to stdout."""
     server = report.get("server", {})
@@ -364,19 +406,8 @@ def print_text_report(report: dict) -> None:
         return
 
     if status == "partial":
-        print("  Status: ⚠️  partial (introspection incomplete)")
-        # Surface which calls failed so the reader doesn't have to guess.
-        notes = report.get("notes", [])
-        errors = report.get("errors", [])
-        failed = [
-            n for n in (notes + errors)
-            if n.get("kind") == "mcp" and n.get("rule") in ("timeout", "error")
-        ]
-        if failed:
-            print("    Missing:")
-            for f in failed:
-                print(f"      - {f.get('name', 'unknown')} ({f.get('rule', 'failed')})")
-        print()
+        print("  Status: ⚠️  partial\n")
+        _print_introspection_coverage(report)
 
     print_tools(report.get("tools", []))
 

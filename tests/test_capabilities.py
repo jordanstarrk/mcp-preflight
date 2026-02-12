@@ -183,7 +183,7 @@ def test_print_tool_capabilities_shows_operations(capsys) -> None:
     assert "Action-level Capabilities (server-declared" in out
     assert "4 operations across 2 tools" in out
     assert "Not directly visible via MCP introspection" in out
-    assert "multiplexed behind the tools above" in out
+    assert "additional actions exposed behind the tools above" in out
     assert "invoice (3): list, get, create" in out
     assert "auth_login (single action)" in out
 

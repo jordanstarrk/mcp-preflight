@@ -37,16 +37,13 @@ my-server (MCP 2025-03-26)
 
   Action-level Capabilities (server-declared, 12 operations across 3 tools):
     Not directly visible via MCP introspection.
-    These represent actions multiplexed behind the tools above.
+    These represent additional actions exposed behind the tools above.
       ↳ items (8): list, get, create, update, delete, search, export, archive
       ↳ reports (3): daily, weekly, monthly
       ↳ auth_login (single action)
 
   Prompts:
     💬 analyze_items (project_name)
-
-  Notes:
-    ℹ️  timeout: mcp list_resources
 
   Risk summary:
     write: 2
@@ -75,9 +72,9 @@ mcp-preflight --json "uv run server.py"
 
 ## Notes
 
-- Runs the server locally.
-- Enumerates exposed MCP capabilities.
-- If the server publishes a `://mcp/manifest` resource, preflight reads it (read-only) to surface action-level capabilities that MCP introspection alone cannot reveal (e.g. a single `invoice` tool that dispatches `list`, `get`, `create`, `send`, `mark_paid`).
+- Runs the server locally in inspection mode (no tools are executed).
+- Lists exposed MCP tools, resources, and prompts.
+- If a single tool supports multiple actions, publish a `{scheme}://mcp/manifest` resource so preflight can surface and diff them. See [server manifest docs](docs/server-manifest.md).
 
 <details>
 <summary>Auth-gated servers / custom env</summary>
@@ -86,13 +83,13 @@ Some MCP servers only reveal tools/resources after authentication. `mcp-prefligh
 
 ```bash
 # Pass a token via env
-mcp-preflight --env GITSCRUM_TOKEN=... "npx -y @gitscrum-studio/mcp-server"
+mcp-preflight --env MCP_SERVER_TOKEN=... "npx -y my-mcp-server"
 
 # Point HOME (and XDG_* dirs) somewhere else (useful for servers that read ~/.config, ~/.local, etc.)
-mcp-preflight --home /tmp/mcp-preflight-home "npx -y @gitscrum-studio/mcp-server"
+mcp-preflight --home /tmp/mcp-preflight-home "npx -y my-mcp-server"
 
 # Isolate HOME entirely to reduce side effects/pollution
-mcp-preflight --isolate-home "npx -y @gitscrum-studio/mcp-server"
+mcp-preflight --isolate-home "npx -y my-mcp-server"
 ```
 
 </details>

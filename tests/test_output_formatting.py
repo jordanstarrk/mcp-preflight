@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from mcp_preflight import (
     _mark_partial,
+    _print_introspection_coverage,
     print_notes,
     print_prompts,
     print_resources,
@@ -94,7 +95,7 @@ def test_print_resources_not_supported(capsys) -> None:
 def test_print_resources_supported_but_errored(capsys) -> None:
     print_resources([], [], supported=True, had_error=True)
     out = capsys.readouterr().out
-    assert "unknown (introspection failed)" in out
+    assert "Resources: unknown" in out
 
 
 def test_print_resources_supported_and_empty(capsys) -> None:
@@ -115,10 +116,85 @@ def test_print_prompts_not_supported(capsys) -> None:
 def test_print_prompts_supported_but_errored(capsys) -> None:
     print_prompts([], supported=True, had_error=True)
     out = capsys.readouterr().out
-    assert "unknown (introspection failed)" in out
+    assert "Prompts: unknown" in out
 
 
 def test_print_prompts_supported_and_empty(capsys) -> None:
     print_prompts([], supported=True, had_error=False)
     out = capsys.readouterr().out
     assert "Prompts: none" in out
+
+
+# ── _print_introspection_coverage ────────────────────────────
+
+
+def test_introspection_coverage_all_ok(capsys) -> None:
+    report = {
+        "capabilities": {"tools": True, "resources": True, "prompts": True},
+        "notes": [],
+        "errors": [],
+    }
+    _print_introspection_coverage(report)
+    out = capsys.readouterr().out
+    assert "Introspection coverage:" in out
+    assert "✓ tools" in out
+    assert "✓ resources" in out
+    assert "✓ prompts" in out
+
+
+def test_introspection_coverage_resources_timeout(capsys) -> None:
+    report = {
+        "capabilities": {"tools": True, "resources": True, "prompts": True},
+        "notes": [
+            {"kind": "mcp", "name": "list_resources", "rule": "timeout", "snippet": "Timed out after 0.8s"},
+        ],
+        "errors": [],
+    }
+    _print_introspection_coverage(report)
+    out = capsys.readouterr().out
+    assert "✓ tools" in out
+    assert "✗ resources (timeout)" in out
+    assert "✓ prompts" in out
+
+
+def test_introspection_coverage_tools_error(capsys) -> None:
+    report = {
+        "capabilities": {"tools": True, "resources": True, "prompts": True},
+        "notes": [],
+        "errors": [
+            {"kind": "mcp", "name": "list_tools", "rule": "error", "snippet": "Method not found"},
+        ],
+    }
+    _print_introspection_coverage(report)
+    out = capsys.readouterr().out
+    assert "✗ tools (error)" in out
+    assert "✓ resources" in out
+
+
+def test_introspection_coverage_omits_undeclared_capabilities(capsys) -> None:
+    """Resources/prompts not declared by server should not appear in coverage."""
+    report = {
+        "capabilities": {"tools": False, "resources": False, "prompts": False},
+        "notes": [],
+        "errors": [],
+    }
+    _print_introspection_coverage(report)
+    out = capsys.readouterr().out
+    assert "✓ tools" in out
+    assert "resources" not in out
+    assert "prompts" not in out
+
+
+def test_introspection_coverage_prompts_timeout(capsys) -> None:
+    report = {
+        "capabilities": {"tools": True, "resources": False, "prompts": True},
+        "notes": [
+            {"kind": "mcp", "name": "list_prompts", "rule": "timeout", "snippet": "Timed out after 10s"},
+        ],
+        "errors": [],
+    }
+    _print_introspection_coverage(report)
+    out = capsys.readouterr().out
+    assert "✓ tools" in out
+    assert "resources" not in out
+    assert "✗ prompts (timeout)" in out

@@ -214,10 +214,10 @@ DIFF_SCENARIOS: list[tuple[str, dict, dict]] = [
     (
         "Manifest: operations expanded (invoice 5 → 8, budget added)",
         {
-            "server": {"name": "gitscrum"},
+            "server": {"name": "acme"},
             "risk": {"write": 5, "destructive": 0, "read": 2},
             "tools": [{"name": "invoice", "risk": "write"}, {"name": "task", "risk": "write"}],
-            "resources": ["gs://mcp/manifest"],
+            "resources": ["acme://mcp/manifest"],
             "resourceTemplates": [],
             "prompts": [],
             "manifest": [
@@ -227,14 +227,14 @@ DIFF_SCENARIOS: list[tuple[str, dict, dict]] = [
             ],
         },
         {
-            "server": {"name": "gitscrum"},
+            "server": {"name": "acme"},
             "risk": {"write": 6, "destructive": 0, "read": 2},
             "tools": [
                 {"name": "invoice", "risk": "write"},
                 {"name": "task", "risk": "write"},
                 {"name": "budget", "risk": "write"},
             ],
-            "resources": ["gs://mcp/manifest"],
+            "resources": ["acme://mcp/manifest"],
             "resourceTemplates": [],
             "prompts": [],
             "manifest": [
