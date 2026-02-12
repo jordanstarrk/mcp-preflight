@@ -39,6 +39,7 @@ except NameError:  # Python <= 3.10
 
 
 # ── Risk classification ──────────────────────────────────────
+# Best-effort keyword heuristic — output labels it as such. Preflight is a lens, not a judge.
 
 READ_PATTERNS = re.compile(
     r"\b(get|list|search|read|fetch|find|show|view)\b",
@@ -90,6 +91,57 @@ def _prompt_dict(prompt: Any) -> dict:
         "arguments": args,
         "description": _normalize_text(desc) if desc else None,
     }
+
+
+def _parse_capabilities_resource(raw: str) -> dict | None:
+    """Parse and validate a capabilities resource JSON string.
+
+    Returns the parsed dict if it has the expected shape (a ``tools`` key whose
+    values are dicts), or ``None`` if the data doesn't match.
+
+    If the data is malformed we skip silently rather than guess — never fabricate
+    capability info the server didn't declare.
+    """
+    try:
+        data = json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        return None
+
+    if not isinstance(data, dict) or "tools" not in data:
+        return None
+
+    tools = data["tools"]
+    if not isinstance(tools, dict):
+        return None
+
+    # Every entry under "tools" must be a dict.
+    for _name, info in tools.items():
+        if not isinstance(info, dict):
+            return None
+
+    return data
+
+
+def _expand_tool_capabilities(caps_data: dict) -> list[dict]:
+    """Return a sorted list of per-tool capability summaries.
+
+    Each entry has ``tool``, ``description``, and optionally ``operations``
+    (a list of action names when the tool has a ``dispatch_key``).
+
+    One tool ≠ one capability — operations are only expanded when the server
+    explicitly declares a dispatch_key.  We never infer multiplexing.
+    """
+    items: list[dict] = []
+    for name, info in caps_data.get("tools", {}).items():
+        entry: dict[str, Any] = {"tool": name}
+        if info.get("description"):
+            entry["description"] = info["description"]
+        ops = info.get("operations")
+        if info.get("dispatch_key") and isinstance(ops, list) and ops:
+            entry["operations"] = ops
+        items.append(entry)
+    items.sort(key=lambda e: e["tool"])
+    return items
 
 
 SUSPICIOUS_PATTERNS: list[tuple[str, re.Pattern]] = [
@@ -145,13 +197,13 @@ def print_header(server_name: str, protocol_version: str) -> None:
 
 def print_tools(tools: list[dict]) -> None:
     if not tools:
-        print("  Tools: none\n")
+        print("  MCP Tools (client-visible): none\n")
         return
 
     name_width = min(max(len(t["name"]) for t in tools), 28)
     term_width = shutil.get_terminal_size(fallback=(100, 20)).columns
 
-    print("  Tools:")
+    print("  MCP Tools (client-visible):")
     for tool in tools:
         icon = tool["icon"]
         desc = tool["description"].replace('"', '\\"')
@@ -192,6 +244,35 @@ def print_resources(
         print(f"    📄 {uri}")
     for uri in sorted(template_uris):
         print(f"    📄 {uri}")
+    print()
+
+
+def print_tool_capabilities(tool_caps: list[dict]) -> None:
+    """Print expanded tool capabilities showing per-tool operations.
+
+    Output labels this data as server-declared and notes that MCP introspection
+    alone cannot surface it — visibility without overstating what we know.
+    """
+    if not tool_caps:
+        return
+
+    total_ops = 0
+    for entry in tool_caps:
+        ops = entry.get("operations")
+        total_ops += len(ops) if ops else 1
+
+    ops_word = "operation" if total_ops == 1 else "operations"
+    tools_word = "tool" if len(tool_caps) == 1 else "tools"
+    print(f"  Action-level Capabilities (server-declared, {total_ops} {ops_word} across {len(tool_caps)} {tools_word}):")
+    print("    Not directly visible via MCP introspection.")
+    print("    These represent actions multiplexed behind the tools above.")
+    for entry in tool_caps:
+        name = entry["tool"]
+        ops = entry.get("operations")
+        if ops:
+            print(f"      ↳ {name} ({len(ops)}): {', '.join(ops)}")
+        else:
+            print(f"      ↳ {name} (single action)")
     print()
 
 
@@ -249,15 +330,23 @@ def print_notes(notes: list[dict]) -> None:
 
 
 def print_risk_summary(counts: dict) -> None:
-    parts = []
-    if counts.get("write"):
-        parts.append(f"{counts['write']} write")
-    if counts.get("destructive"):
-        parts.append(f"{counts['destructive']} destructive")
-    if counts.get("read"):
-        parts.append(f"{counts['read']} read-only")
+    # Best-effort keyword heuristic — output labels it as such. Preflight is a lens, not a judge.
+    w = counts.get("write", 0)
+    d = counts.get("destructive", 0)
+    r = counts.get("read", 0)
 
-    print(f"  Risk: {', '.join(parts) if parts else 'none'}")
+    if not (w or d or r):
+        print("  Risk: None\n")
+        return
+
+    print("  Risk Summary:")
+    if w:
+        print(f"    write: {w}")
+    if d:
+        print(f"    destructive: {d}")
+    if r:
+        print(f"    read-only: {r}")
+    print("    (best-effort heuristic from tool names/descriptions; not enforced)")
     print()
 
 
@@ -275,7 +364,19 @@ def print_text_report(report: dict) -> None:
         return
 
     if status == "partial":
-        print("  Status: ⚠️  partial (some MCP introspection calls failed)\n")
+        print("  Status: ⚠️  partial (introspection incomplete)")
+        # Surface which calls failed so the reader doesn't have to guess.
+        notes = report.get("notes", [])
+        errors = report.get("errors", [])
+        failed = [
+            n for n in (notes + errors)
+            if n.get("kind") == "mcp" and n.get("rule") in ("timeout", "error")
+        ]
+        if failed:
+            print("    Missing:")
+            for f in failed:
+                print(f"      - {f.get('name', 'unknown')} ({f.get('rule', 'failed')})")
+        print()
 
     print_tools(report.get("tools", []))
 
@@ -292,6 +393,7 @@ def print_text_report(report: dict) -> None:
         supported=capabilities.get("resources", True),
         had_error=resources_had_error,
     )
+    print_tool_capabilities(report.get("manifest", []))
     print_prompts(
         report.get("prompts", []),
         supported=capabilities.get("prompts", True),
@@ -437,8 +539,9 @@ def _build_report(
     notes: list[dict],
     risk: dict,
     errors: list[dict] | None = None,
+    tool_capabilities: list[dict] | None = None,
 ) -> dict:
-    return {
+    report = {
         "generatedAt": datetime.now(timezone.utc).isoformat(),
         "scannedCommand": scanned_command,
         "server": {"name": server_name, "protocolVersion": protocol_version},
@@ -453,6 +556,9 @@ def _build_report(
         "notes": notes,
         "errors": errors or [],
     }
+    if tool_capabilities is not None:
+        report["manifest"] = tool_capabilities
+    return report
 
 
 async def inspect(
@@ -552,6 +658,27 @@ async def inspect(
             resource_uris = sorted([str(r.uri) for r in resources])
             template_uris = sorted([str(t.uriTemplate) for t in templates])
 
+            # Manifest resource — read-only, no call_tool, no state mutation.
+            tool_capabilities: list[dict] | None = None
+            if resources:
+                caps_resource = next(
+                    (r for r in resources if str(r.uri).endswith("://mcp/manifest")),
+                    None,
+                )
+                if caps_resource:
+                    try:
+                        read_result = await asyncio.wait_for(
+                            session.read_resource(caps_resource.uri), timeout=timeout_s
+                        )
+                        if read_result.contents:
+                            raw_text = getattr(read_result.contents[0], "text", None)
+                            if raw_text:
+                                caps_data = _parse_capabilities_resource(raw_text)
+                                if caps_data is not None:
+                                    tool_capabilities = _expand_tool_capabilities(caps_data)
+                    except Exception:
+                        pass  # Skip silently on any error.
+
             # Prompts — skip if server didn't declare the capability.
             prompts = []
             if has_prompts:
@@ -590,6 +717,7 @@ async def inspect(
                 notes=notes,
                 risk=risk,
                 errors=errors,
+                tool_capabilities=tool_capabilities,
             )
 
 
@@ -656,7 +784,61 @@ def diff_reports(before: dict, after: dict) -> str:
             lines.append(f"    - {name}")
         lines.append("")
 
-    if not (added or removed or changed_risk or res_added or res_removed or tmpl_added or tmpl_removed or pr_added or pr_removed):
+    # Manifest / action-level capability diff.
+    def caps_map(r: dict) -> dict[str, list[str] | None]:
+        return {
+            e["tool"]: e.get("operations")
+            for e in r.get("manifest", [])
+            if isinstance(e, dict) and "tool" in e
+        }
+
+    before_caps = caps_map(before)
+    after_caps = caps_map(after)
+    caps_added = sorted(set(after_caps) - set(before_caps))
+    caps_removed = sorted(set(before_caps) - set(after_caps))
+    caps_changed: list[tuple[str, list[str], list[str]]] = []
+    for name in sorted(set(before_caps) & set(after_caps)):
+        b_ops = set(before_caps[name] or [])
+        a_ops = set(after_caps[name] or [])
+        if b_ops != a_ops:
+            ops_added = sorted(a_ops - b_ops)
+            ops_removed = sorted(b_ops - a_ops)
+            caps_changed.append((name, ops_added, ops_removed))
+
+    has_caps_diff = caps_added or caps_removed or caps_changed
+    if has_caps_diff:
+        # "now visible" when the before report had no manifest at all.
+        if not before_caps and after_caps:
+            lines.append("  Capabilities (now visible):")
+        else:
+            lines.append("  Capabilities:")
+        for name in caps_added:
+            ops = after_caps[name]
+            count = f" ({len(ops)} operations)" if ops else ""
+            lines.append(f"    + {name}{count}")
+        for name in caps_removed:
+            ops = before_caps[name]
+            count = f" ({len(ops)} operations)" if ops else ""
+            lines.append(f"    - {name}{count}")
+        for name, ops_added_list, ops_removed_list in caps_changed:
+            b_count = len(before_caps[name] or [])
+            a_count = len(after_caps[name] or [])
+            parts = []
+            if ops_added_list:
+                parts.append(f"added: {', '.join(ops_added_list)}")
+            if ops_removed_list:
+                parts.append(f"removed: {', '.join(ops_removed_list)}")
+            detail = f" ({'; '.join(parts)})" if parts else ""
+            lines.append(f"    ~ {name}: {b_count} operations -> {a_count} operations{detail}")
+        lines.append("")
+
+    has_any_change = (
+        added or removed or changed_risk
+        or res_added or res_removed or tmpl_added or tmpl_removed
+        or pr_added or pr_removed
+        or has_caps_diff
+    )
+    if not has_any_change:
         lines.append("  No changes detected.\n")
 
     return "\n".join(lines).rstrip() + "\n"
