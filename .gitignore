@@ -9,5 +9,5 @@ wheels/
 # Virtual environments
 .venv
 
-# Cursor workspace artifacts (don’t commit plans)
-.cursor/plans/
+# Cursor workspace artifacts
+.cursor/
