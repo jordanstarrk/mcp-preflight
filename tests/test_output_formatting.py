@@ -31,15 +31,17 @@ def test_mark_partial_does_not_downgrade_other_statuses() -> None:
 def test_print_risk_summary_all_zero_prints_none(capsys) -> None:
     print_risk_summary({"read": 0, "write": 0, "destructive": 0})
     out = capsys.readouterr().out
-    assert "Risk: none" in out
+    assert "Risk: None" in out
 
 
 def test_print_risk_summary_mixed_counts(capsys) -> None:
     print_risk_summary({"read": 3, "write": 1, "destructive": 2})
     out = capsys.readouterr().out
-    assert "1 write" in out
-    assert "2 destructive" in out
-    assert "3 read-only" in out
+    assert "Risk Summary:" in out
+    assert "write: 1" in out
+    assert "destructive: 2" in out
+    assert "read-only: 3" in out
+    assert "best-effort heuristic" in out
 
 
 # ── print_notes ──────────────────────────────────────────────
