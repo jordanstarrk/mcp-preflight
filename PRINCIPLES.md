@@ -6,7 +6,7 @@ It is a small inspection tool, not a safety system, policy engine, or governance
 These principles describe what the tool is for, where it stops, and how scope decisions are made.
 
 ---
-## Principles at a glance
+## TLDR Principles
 
 - Preflight provides pre-trust visibility, not enforcement or guarantees
 - Declared surfaces are preferred over inferred behavior
@@ -109,7 +109,7 @@ New, removed, or expanded capabilities are often more important than static snap
 
 ---
 
-## Trust Posture
+## How to Treat Preflight Output
 
 - Server-declared metadata may be shown, but should not be treated as trusted or verified.
 - Preflight does not claim correctness, safety, or completeness.
@@ -129,7 +129,7 @@ If not, it probably does not belong in `mcp-preflight`.
 
 ---
 
-## Long-Term Posture
+## Long Term
 
 Preflight should stay:
 - boring
