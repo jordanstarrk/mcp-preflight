@@ -4,6 +4,10 @@
 
 `ls -la` for MCP servers. See what an MCP server exposes before you connect it.
 
+Agent systems often fail due to surprising defaults and invisible capability surfaces. `mcp-preflight` exists to make those visible before trust is established.
+
+
+
 ## Install
 
 ```bash
@@ -127,6 +131,10 @@ mcp-preflight --no-signals "uv run server.py"
 
 This tool inspects exposed MCP capabilities. It does not call tools (`call_tool`). Manifest data is read via `read_resource` — no server state is mutated.
 
-## Support
+## Principles
+See [PRINCIPLES.md](PRINCIPLES.md).
 
-- Bugs / feature requests: `https://github.com/jordanstarrk/mcp-preflight/issues`
+
+## Project
+
+- Bugs / feature requests: [GitHub Issues](`https://github.com/jordanstarrk/mcp-preflight/issues`)
