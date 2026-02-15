@@ -6,7 +6,7 @@ It is a small inspection tool, not a safety system, policy engine, or governance
 These principles describe what the tool is for, where it stops, and how scope decisions are made.
 
 ---
-## Principles at a glance
+## TLDR Principles
 
 - Preflight provides pre-trust visibility, not enforcement or guarantees
 - Declared surfaces are preferred over inferred behavior
